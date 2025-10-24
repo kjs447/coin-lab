@@ -1,0 +1,12 @@
+fastapi
+uvicorn[standard]
+sqlalchemy
+pydantic
+pydantic-settings
+requests
+backtrader
+numpy
+pandas
+scipy
+python-dateutil
+Jinja2

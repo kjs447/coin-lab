@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Coin Lab Experiments</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 2rem; background: #f4f6fb; color: #223; }
+        h1 { margin-bottom: 0.5rem; }
+        form { background: #fff; padding: 1.5rem; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); margin-bottom: 2rem; }
+        label { display: block; margin-top: 1rem; font-weight: bold; }
+        input, select { width: 100%; padding: 0.5rem; margin-top: 0.25rem; border: 1px solid #ccd; border-radius: 4px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+        th, td { padding: 0.5rem; border: 1px solid #dde; text-align: left; }
+        th { background: #eef2ff; }
+        button { margin-top: 1.5rem; padding: 0.75rem 1.5rem; border: none; background: #3b82f6; color: #fff; border-radius: 4px; cursor: pointer; }
+        button:disabled { background: #9ca3af; cursor: not-allowed; }
+        #results { white-space: pre-wrap; background: #fff; padding: 1rem; border-radius: 8px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+        .param-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.5rem; }
+        .param-grid label { font-weight: normal; }
+    </style>
+</head>
+<body>
+    <h1>Coin Lab Experiment Runner</h1>
+    <p>Configure validation/test windows and hyperparameter ranges, then launch optimization and evaluation.</p>
+
+    <form id="experiment-form">
+        <label>Market
+            <input type="text" name="market" value="KRW-BTC" required>
+        </label>
+
+        <label>Strategy
+            <select name="strategy" id="strategy-select">
+                {% for strategy in strategies %}
+                <option value="{{ strategy.identifier }}">{{ strategy.name }}</option>
+                {% endfor %}
+            </select>
+        </label>
+
+        <div class="param-section">
+            <h3>Hyperparameter Ranges (optional overrides)</h3>
+            <table id="parameter-table">
+                <thead>
+                    <tr>
+                        <th>Name</th>
+                        <th>Description</th>
+                        <th>Default</th>
+                        <th>Suggested Min</th>
+                        <th>Suggested Max</th>
+                        <th>Override Min</th>
+                        <th>Override Max</th>
+                        <th>Override Default</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for strategy in strategies %}
+                        {% for param in strategy.parameters %}
+                        <tr data-strategy="{{ strategy.identifier }}">
+                            <td>{{ param.name }}</td>
+                            <td>{{ param.description or '' }}</td>
+                            <td>{{ '{:.4f}'.format(param.default) if param.kind == 'float' else param.default }}</td>
+                            <td>{{ param.recommended_min if param.recommended_min is not none else '-' }}</td>
+                            <td>{{ param.recommended_max if param.recommended_max is not none else '-' }}</td>
+                            <td><input type="number" step="any" name="{{ strategy.identifier }}::{{ param.name }}::min"></td>
+                            <td><input type="number" step="any" name="{{ strategy.identifier }}::{{ param.name }}::max"></td>
+                            <td><input type="number" step="any" name="{{ strategy.identifier }}::{{ param.name }}::default"></td>
+                        </tr>
+                        {% endfor %}
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="grid">
+            <label>Validation Start
+                <input type="text" name="validation_start" required placeholder="YYYY-MM-DDTHH:MM:SS">
+            </label>
+            <label>Validation End
+                <input type="text" name="validation_end" required placeholder="YYYY-MM-DDTHH:MM:SS">
+            </label>
+            <label>Test Start
+                <input type="text" name="test_start" required placeholder="YYYY-MM-DDTHH:MM:SS">
+            </label>
+            <label>Test End
+                <input type="text" name="test_end" required placeholder="YYYY-MM-DDTHH:MM:SS">
+            </label>
+        </div>
+
+        <label>Window Size (hours)
+            <input type="number" name="window_hours" min="1" value="72" required>
+        </label>
+        <label>Validation Windows Count
+            <input type="number" name="validation_windows" min="1" value="5" required>
+        </label>
+        <label>Test Windows Count
+            <input type="number" name="test_windows" min="1" value="3" required>
+        </label>
+
+        <button type="submit">Run Experiment</button>
+    </form>
+
+    <div id="results"></div>
+
+    <script>
+        const form = document.getElementById('experiment-form');
+        const resultsDiv = document.getElementById('results');
+        const strategySelect = document.getElementById('strategy-select');
+        const parameterRows = document.querySelectorAll('#parameter-table tbody tr');
+
+        function updateParameterVisibility() {
+            const selected = strategySelect.value;
+            parameterRows.forEach(row => {
+                row.style.display = row.dataset.strategy === selected ? '' : 'none';
+            });
+        }
+
+        strategySelect.addEventListener('change', updateParameterVisibility);
+        updateParameterVisibility();
+
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+            resultsDiv.textContent = 'Running experiment...';
+            const formData = new FormData(form);
+            const isoPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(Z)?$/;
+
+            function readTimestamp(key) {
+                const value = (formData.get(key) || '').trim();
+                if (!isoPattern.test(value)) {
+                    throw new Error(`${key.replace('_', ' ')} must match YYYY-MM-DDTHH:MM:SS (optional trailing Z)`);
+                }
+                return value.endsWith('Z') ? value : `${value}Z`;
+            }
+
+            let validationStart, validationEnd, testStart, testEnd;
+            try {
+                validationStart = readTimestamp('validation_start');
+                validationEnd = readTimestamp('validation_end');
+                testStart = readTimestamp('test_start');
+                testEnd = readTimestamp('test_end');
+            } catch (validationError) {
+                resultsDiv.textContent = `Error: ${validationError.message}`;
+                return;
+            }
+
+            const payload = {
+                market: formData.get('market'),
+                strategy_id: formData.get('strategy'),
+                validation: {
+                    start: validationStart,
+                    end: validationEnd
+                },
+                test: {
+                    start: testStart,
+                    end: testEnd
+                },
+                window_hours: Number(formData.get('window_hours')),
+                validation_windows: Number(formData.get('validation_windows')),
+                test_windows: Number(formData.get('test_windows')),
+                parameter_ranges: []
+            };
+
+            parameterRows.forEach(row => {
+                if (row.style.display === 'none') return;
+                const strategyId = row.dataset.strategy;
+                if (strategyId !== payload.strategy_id) return;
+                const name = row.cells[0].textContent.trim();
+                const minInput = row.querySelector(`input[name="${strategyId}::${name}::min"]`);
+                const maxInput = row.querySelector(`input[name="${strategyId}::${name}::max"]`);
+                const defaultInput = row.querySelector(`input[name="${strategyId}::${name}::default"]`);
+                const range = { name };
+                if (minInput.value) range.min = Number(minInput.value);
+                if (maxInput.value) range.max = Number(maxInput.value);
+                if (defaultInput.value) range.default = Number(defaultInput.value);
+                if (range.min !== undefined || range.max !== undefined || range.default !== undefined) {
+                    payload.parameter_ranges.push(range);
+                }
+            });
+
+            try {
+                const response = await fetch('/experiment', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(errorText || 'Experiment failed');
+                }
+                const data = await response.json();
+                resultsDiv.textContent = JSON.stringify(data, null, 2);
+            } catch (error) {
+                resultsDiv.textContent = `Error: ${error.message}`;
+            }
+        });
+    </script>
+</body>
+</html>
