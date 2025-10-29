@@ -3,6 +3,7 @@ from __future__ import annotations
 import backtrader as bt
 
 from .base import HyperParameter, StrategySpec, registry
+from .indicators import OnBalanceVolume, WeightedClose
 
 
 class WindowAwareStrategy(bt.Strategy):
@@ -50,7 +51,9 @@ class BollingerRsiReversionStrategy(WindowAwareStrategy):
             devfactor=float(self.params.devfactor),
         )
         self.rsi = bt.indicators.RelativeStrengthIndex(
-            self.data.close, period=int(self.params.rsi_period)
+            self.data.close,
+            period=int(self.params.rsi_period),
+            safediv=True,
         )
 
     def next(self) -> None:
@@ -91,7 +94,7 @@ class ObvMovingAverageStrategy(WindowAwareStrategy):
     params = dict(live_start=None, short_period=10, long_period=30)
 
     def __init__(self) -> None:
-        obv = bt.indicators.OnBalanceVolume(self.data)
+        obv = OnBalanceVolume(self.data)
         short = bt.indicators.ExponentialMovingAverage(obv, period=int(self.params.short_period))
         long = bt.indicators.ExponentialMovingAverage(obv, period=int(self.params.long_period))
         self.crossover = bt.indicators.CrossOver(short, long)
@@ -109,7 +112,7 @@ class WeightedCloseTrendStrategy(WindowAwareStrategy):
     params = dict(live_start=None, ema_period=15, threshold=0.01)
 
     def __init__(self) -> None:
-        self.weighted_close = bt.indicators.WeightedClose(self.data)
+        self.weighted_close = WeightedClose(self.data)
         self.ema = bt.indicators.ExponentialMovingAverage(
             self.weighted_close, period=int(self.params.ema_period)
         )

@@ -50,6 +50,11 @@ def add_range(session: Session, market: str, start: datetime, end: datetime) -> 
     if end < start:
         raise ValueError("Range end must be >= start")
 
-    existing = [(r.start_timestamp, r.end_timestamp) for r in fetch_ranges(session, market)]
+    existing_objs = fetch_ranges(session, market)
+    existing = [(r.start_timestamp, r.end_timestamp) for r in existing_objs]
     merged = merge_ranges(existing + [(start, end)])
+
+    if merged == existing:
+        return existing_objs
+
     return persist_ranges(session, market, merged)

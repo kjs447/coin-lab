@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ..config import settings
-from ..database import session_scope
+from ..database import write_session_scope
 from ..models import OHLCV
 from ..schemas import DataIngestionResponse, TimeRange
 from ..utils.time import align_range, ensure_utc, to_naive_utc
@@ -96,7 +96,7 @@ class DataIngestionService:
         ingested = 0
         interpolated = 0
 
-        with session_scope() as session:
+        with write_session_scope() as session:
             existing_ranges = range_service.fetch_ranges(session, market)
             missing_segments = self._compute_missing_segments(
                 existing_ranges, start_aligned, end_aligned

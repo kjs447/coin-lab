@@ -51,8 +51,42 @@ def _volatility_builder(data: bt.feeds.DataBase, period: int = 20) -> bt.Indicat
     return bt.indicators.StandardDeviation(data.close, period=period)
 
 
+class OnBalanceVolume(bt.Indicator):
+    lines = ('obv',)
+
+    def __init__(self) -> None:
+        self.addminperiod(2)
+
+    def next(self) -> None:
+        if len(self.data) <= 1:
+            self.lines.obv[0] = 0.0
+            return
+
+        prev = self.lines.obv[-1]
+        close = self.data.close[0]
+        prev_close = self.data.close[-1]
+        volume = float(self.data.volume[0]) if hasattr(self.data, 'volume') else 0.0
+
+        if close > prev_close:
+            self.lines.obv[0] = prev + volume
+        elif close < prev_close:
+            self.lines.obv[0] = prev - volume
+        else:
+            self.lines.obv[0] = prev
+
+
 def _obv_builder(data: bt.feeds.DataBase) -> bt.Indicator:
-    return bt.indicators.OnBalanceVolume(data)
+    return OnBalanceVolume(data)
+
+
+class WeightedClose(bt.Indicator):
+    lines = ('wc',)
+
+    def next(self) -> None:
+        high = float(self.data.high[0]) if hasattr(self.data, 'high') else float(self.data[0])
+        low = float(self.data.low[0]) if hasattr(self.data, 'low') else float(self.data[0])
+        close = float(self.data.close[0]) if hasattr(self.data, 'close') else float(self.data[0])
+        self.lines.wc[0] = (high + low + 2 * close) / 4.0
 
 
 def _weighted_close_builder(data: bt.feeds.DataBase) -> bt.Indicator:

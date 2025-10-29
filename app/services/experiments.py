@@ -115,20 +115,12 @@ class BacktestRunner:
             returns_series = [final_value / self.cash - 1]
 
         trade_analysis = strat.analyzers.trade.get_analysis() or {}
-        closed_trades = trade_analysis.get("closed", [])
-        if isinstance(closed_trades, dict):
-            closed_trades = closed_trades.values()
-        filtered_trades = []
-        for trade in closed_trades:
-            if not isinstance(trade, dict):
-                continue
-            open_dt = trade.get("dtopen")
-            open_dt = pd.Timestamp(open_dt).to_pydatetime() if open_dt is not None else None
-            if focus_start is None or (open_dt is not None and open_dt >= focus_start):
-                filtered_trades.append(trade)
-        winning_trades = sum(1 for trade in filtered_trades if trade.get("pnl", 0) > 0)
-        losing_trades = sum(1 for trade in filtered_trades if trade.get("pnl", 0) <= 0)
-        closed = len(filtered_trades)
+        won_block = trade_analysis.get("won", {})
+        lost_block = trade_analysis.get("lost", {})
+        closed_block = trade_analysis.get("closed", {})
+        winning_trades = int(won_block.get("total", 0)) if isinstance(won_block, dict) else int(won_block or 0)
+        losing_trades = int(lost_block.get("total", 0)) if isinstance(lost_block, dict) else int(lost_block or 0)
+        closed = int(closed_block.get("total", winning_trades + losing_trades)) if isinstance(closed_block, dict) else int(closed_block or (winning_trades + losing_trades))
 
         drawdown_analysis = strat.analyzers.drawdown.get_analysis() or {}
         max_dd = drawdown_analysis.get("max", {})
